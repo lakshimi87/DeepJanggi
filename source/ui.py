@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Tuple
 import pygame
 
 from .agent import NeuralAgent
-from .board import Janggi, Move, PASS_MOVE
+from .board import INITIAL_SETUP, Janggi, Move, PASS_MOVE
 from .config import (
 	BLUE,
 	COLS,
@@ -43,12 +43,19 @@ from .config import (
 CELL_SIZE = 64
 MARGIN_LEFT = 56
 MARGIN_TOP = 56
-STATUS_HEIGHT = 80
+MARGIN_BOTTOM = 24
 BOARD_WIDTH = (COLS - 1) * CELL_SIZE
 BOARD_HEIGHT = (ROWS - 1) * CELL_SIZE
-WINDOW_WIDTH = MARGIN_LEFT * 2 + BOARD_WIDTH
-WINDOW_HEIGHT = MARGIN_TOP + BOARD_HEIGHT + STATUS_HEIGHT + 24
+SIDE_PANEL_GAP = 24
+SIDE_PANEL_WIDTH = 280
+SIDE_PANEL_PAD = 16
+WINDOW_WIDTH = MARGIN_LEFT + BOARD_WIDTH + SIDE_PANEL_GAP + SIDE_PANEL_WIDTH + SIDE_PANEL_GAP
+WINDOW_HEIGHT = MARGIN_TOP + BOARD_HEIGHT + MARGIN_BOTTOM
 PIECE_SIZE = int(CELL_SIZE * 0.92)
+
+SIDE_PANEL_X = MARGIN_LEFT + BOARD_WIDTH + SIDE_PANEL_GAP
+SIDE_PANEL_Y = MARGIN_TOP
+SIDE_PANEL_HEIGHT = BOARD_HEIGHT
 
 # Color palette.
 BACKGROUND = (236, 200, 132)
@@ -56,8 +63,18 @@ LINE_COLOR = (40, 28, 18)
 HIGHLIGHT_SELECT = (60, 120, 220)
 HIGHLIGHT_MOVE = (40, 180, 80)
 HIGHLIGHT_CAPTURE = (220, 60, 60)
+HIGHLIGHT_SETUP = (90, 130, 200)
 TEXT_COLOR = (20, 20, 20)
+SUBTLE_TEXT = (90, 60, 30)
 STATUS_BG = (220, 178, 110)
+BUTTON_BG = (200, 160, 90)
+BUTTON_BG_HOVER = (224, 184, 116)
+BUTTON_BG_DISABLED = (190, 180, 160)
+BUTTON_BORDER = (40, 28, 18)
+BUTTON_TEXT = (20, 20, 20)
+BUTTON_TEXT_DISABLED = (110, 100, 90)
+ERROR_COLOR = (170, 30, 30)
+THINKING_COLOR = (50, 100, 60)
 
 
 _PIECE_FILE_NAMES: Dict[Tuple[int, int], str] = {
@@ -102,6 +119,16 @@ def _load_svg(path: str, size: int) -> pygame.Surface:
 
 
 @dataclass
+class Button:
+	rect: pygame.Rect
+	label: str
+	enabled: bool = True
+
+	def hit(self, x: int, y: int) -> bool:
+		return self.enabled and self.rect.collidepoint(x, y)
+
+
+@dataclass
 class Renderer:
 	human_color: int
 	piece_surfaces: Dict[Tuple[int, int], pygame.Surface]
@@ -141,11 +168,14 @@ class Renderer:
 		state: Janggi,
 		selected: Optional[Tuple[int, int]],
 		legal_targets: List[Tuple[int, int]],
-		status_message: str,
+		app: "JanggiApp",
+		mouse_pos: Tuple[int, int],
 	) -> None:
 		surface.fill(BACKGROUND)
 		self._draw_board(surface)
 		self._draw_palaces(surface)
+		if app.setup_phase:
+			self._highlight_setup_pieces(surface, state)
 		if selected is not None:
 			self._highlight_cell(surface, selected, HIGHLIGHT_SELECT, width=4)
 		for tr, tc in legal_targets:
@@ -153,15 +183,13 @@ class Renderer:
 			color = HIGHLIGHT_CAPTURE if occ != EMPTY else HIGHLIGHT_MOVE
 			self._draw_target_dot(surface, (tr, tc), color)
 		self._draw_pieces(surface, state)
-		self._draw_status(surface, state, status_message)
+		self._draw_side_panel(surface, state, app, mouse_pos)
 
 	def _draw_board(self, surface: pygame.Surface) -> None:
-		# Vertical lines (with river break? Janggi has no river: full-height vertical lines).
 		for c in range(COLS):
 			x, y0 = self.board_to_screen(0, c)
 			_, y1 = self.board_to_screen(ROWS - 1, c)
 			pygame.draw.line(surface, LINE_COLOR, (x, y0), (x, y1), 2)
-		# Horizontal lines.
 		for r in range(ROWS):
 			x0, y = self.board_to_screen(r, 0)
 			x1, _ = self.board_to_screen(r, COLS - 1)
@@ -201,23 +229,136 @@ class Renderer:
 		cx, cy = self.board_to_screen(*cell)
 		pygame.draw.circle(surface, color, (cx, cy), 8)
 
-	def _draw_status(self, surface: pygame.Surface, state: Janggi, message: str) -> None:
-		bar = pygame.Rect(0, MARGIN_TOP + BOARD_HEIGHT + 12, WINDOW_WIDTH, STATUS_HEIGHT)
-		pygame.draw.rect(surface, STATUS_BG, bar)
-		pygame.draw.rect(surface, LINE_COLOR, bar, 2)
+	def _highlight_setup_pieces(self, surface: pygame.Surface, state: Janggi) -> None:
+		"""During setup, highlight the horse/elephant cells eligible for a flank swap."""
+		for r in (0, 9):
+			for c in (1, 2, 6, 7):
+				piece = state.grid[r][c]
+				if piece == EMPTY:
+					continue
+				if piece_type(piece) in (HORSE, ELEPHANT):
+					self._highlight_cell(surface, (r, c), HIGHLIGHT_SETUP, width=2)
 
-		turn_label = f"Turn: {PLAYER_NAMES[state.side_to_move].upper()}  Ply: {state.ply}"
-		txt1 = self.font_small.render(turn_label, True, TEXT_COLOR)
-		surface.blit(txt1, (16, bar.y + 10))
+	def _draw_side_panel(
+		self,
+		surface: pygame.Surface,
+		state: Janggi,
+		app: "JanggiApp",
+		mouse_pos: Tuple[int, int],
+	) -> None:
+		panel = pygame.Rect(SIDE_PANEL_X, SIDE_PANEL_Y, SIDE_PANEL_WIDTH, SIDE_PANEL_HEIGHT)
+		pygame.draw.rect(surface, STATUS_BG, panel)
+		pygame.draw.rect(surface, LINE_COLOR, panel, 2)
 
-		help_text = "Click a piece, then a destination. [P] = pass turn   [N] = new game   [Esc] = quit"
-		txt2 = self.font_small.render(help_text, True, TEXT_COLOR)
-		surface.blit(txt2, (16, bar.y + 36))
+		x = panel.x + SIDE_PANEL_PAD
+		y = panel.y + SIDE_PANEL_PAD
+		inner_w = panel.width - SIDE_PANEL_PAD * 2
 
-		if message:
-			txt3 = self.font_large.render(message, True, (170, 30, 30))
-			rect = txt3.get_rect(midright=(WINDOW_WIDTH - 16, bar.y + 28))
-			surface.blit(txt3, rect)
+		# Title.
+		title = self.font_large.render("DeepJanggi", True, TEXT_COLOR)
+		surface.blit(title, (x, y))
+		y += title.get_height() + 8
+
+		# You info.
+		you_label = f"You play: {PLAYER_NAMES[app.human_color].upper()}"
+		surface.blit(self.font_small.render(you_label, True, TEXT_COLOR), (x, y))
+		y += 24
+
+		# Turn / ply.
+		turn_label = f"Turn: {PLAYER_NAMES[state.side_to_move].upper()}"
+		surface.blit(self.font_small.render(turn_label, True, TEXT_COLOR), (x, y))
+		y += 22
+		ply_label = f"Ply: {state.ply}"
+		surface.blit(self.font_small.render(ply_label, True, TEXT_COLOR), (x, y))
+		y += 28
+
+		# Separator.
+		pygame.draw.line(surface, LINE_COLOR, (x, y), (x + inner_w, y), 1)
+		y += 10
+
+		# Status / hint area.
+		if app.setup_phase:
+			heading = self.font_small.render("SETUP", True, ERROR_COLOR)
+			surface.blit(heading, (x, y))
+			y += 22
+			hint_lines = [
+				"Click a HORSE or",
+				"ELEPHANT on the back",
+				"rank to swap it with",
+				"its flank partner.",
+				"",
+				"Either side can be",
+				"rearranged.",
+				"",
+				"Press Start (or SPACE)",
+				"to begin the game.",
+			]
+			for line in hint_lines:
+				surface.blit(self.font_small.render(line, True, TEXT_COLOR), (x, y))
+				y += 20
+		else:
+			msg = app.message
+			if msg:
+				if "thinking" in msg.lower():
+					color = THINKING_COLOR
+				elif state.is_terminal():
+					color = ERROR_COLOR
+				else:
+					color = TEXT_COLOR
+				for line in self._wrap_text(msg, self.font_small, inner_w):
+					surface.blit(self.font_small.render(line, True, color), (x, y))
+					y += 22
+
+		# Buttons (drawn near the bottom of the panel).
+		for btn in app.visible_buttons():
+			self._draw_button(surface, btn, mouse_pos)
+
+		# Help text at the bottom of the panel.
+		help_lines = [
+			"[N] New game",
+			"[P] Pass turn",
+			"[Esc] Quit",
+		]
+		hy = panel.y + panel.height - SIDE_PANEL_PAD - len(help_lines) * 20
+		for line in help_lines:
+			surface.blit(self.font_small.render(line, True, SUBTLE_TEXT), (x, hy))
+			hy += 20
+
+	def _draw_button(
+		self, surface: pygame.Surface, btn: Button, mouse_pos: Tuple[int, int]
+	) -> None:
+		if not btn.enabled:
+			bg = BUTTON_BG_DISABLED
+			fg = BUTTON_TEXT_DISABLED
+		elif btn.rect.collidepoint(mouse_pos):
+			bg = BUTTON_BG_HOVER
+			fg = BUTTON_TEXT
+		else:
+			bg = BUTTON_BG
+			fg = BUTTON_TEXT
+		pygame.draw.rect(surface, bg, btn.rect, border_radius=6)
+		pygame.draw.rect(surface, BUTTON_BORDER, btn.rect, 2, border_radius=6)
+		txt = self.font_small.render(btn.label, True, fg)
+		txt_rect = txt.get_rect(center=btn.rect.center)
+		surface.blit(txt, txt_rect)
+
+	def _wrap_text(self, text: str, font: pygame.font.Font, max_width: int) -> List[str]:
+		words = text.split()
+		if not words:
+			return [text]
+		lines: List[str] = []
+		cur = ""
+		for w in words:
+			candidate = (cur + " " + w).strip()
+			if font.size(candidate)[0] <= max_width:
+				cur = candidate
+			else:
+				if cur:
+					lines.append(cur)
+				cur = w
+		if cur:
+			lines.append(cur)
+		return lines
 
 
 class JanggiApp:
@@ -231,11 +372,30 @@ class JanggiApp:
 		self.selected: Optional[Tuple[int, int]] = None
 		self.legal_for_selected: List[Move] = []
 		self.message = ""
+		self.setup_phase = True
 
 		self.agent_thread: Optional[threading.Thread] = None
 		self.agent_move: Optional[Move] = None
 		self.agent_thinking = False
 		self.agent: Optional[NeuralAgent] = None
+
+		# Side-panel buttons.
+		bx = SIDE_PANEL_X + SIDE_PANEL_PAD
+		bw = SIDE_PANEL_WIDTH - SIDE_PANEL_PAD * 2
+		button_block_top = SIDE_PANEL_Y + SIDE_PANEL_HEIGHT - SIDE_PANEL_PAD - 80 - 96
+		self.start_button = Button(
+			rect=pygame.Rect(bx, button_block_top, bw, 44),
+			label="Start Game",
+		)
+		self.reset_button = Button(
+			rect=pygame.Rect(bx, button_block_top + 52, bw, 36),
+			label="Reset Setup",
+		)
+
+	def visible_buttons(self) -> List[Button]:
+		if self.setup_phase:
+			return [self.start_button, self.reset_button]
+		return []
 
 	# ------------------------------------------------------------------
 	# AI worker
@@ -271,7 +431,23 @@ class JanggiApp:
 	# ------------------------------------------------------------------
 	# Input handling
 	# ------------------------------------------------------------------
+	def handle_panel_click(self, pos: Tuple[int, int]) -> bool:
+		"""Process clicks that fall inside the side panel. Returns True if handled."""
+		if self.setup_phase:
+			if self.start_button.hit(*pos):
+				self.start_game()
+				return True
+			if self.reset_button.hit(*pos):
+				self.reset_setup()
+				return True
+		# Swallow any other clicks inside the panel so they don't fall through.
+		panel = pygame.Rect(SIDE_PANEL_X, SIDE_PANEL_Y, SIDE_PANEL_WIDTH, SIDE_PANEL_HEIGHT)
+		return panel.collidepoint(*pos)
+
 	def handle_click(self, board_pos: Tuple[int, int]) -> None:
+		if self.setup_phase:
+			self._try_swap_setup(board_pos)
+			return
 		if self.agent_thinking or self.state.is_terminal():
 			return
 		if self.state.side_to_move != self.human_color:
@@ -302,6 +478,28 @@ class JanggiApp:
 			self.selected = None
 			self.legal_for_selected = []
 
+	def _try_swap_setup(self, board_pos: Tuple[int, int]) -> None:
+		"""Swap a horse with its flank-partner elephant (or vice versa) on the back rank."""
+		r, c = board_pos
+		if r not in (0, 9):
+			return
+		piece = self.state.grid[r][c]
+		if piece == EMPTY or piece_type(piece) not in (HORSE, ELEPHANT):
+			return
+		if c in (1, 2):
+			partner_c = 3 - c  # 1 <-> 2
+		elif c in (6, 7):
+			partner_c = 13 - c  # 6 <-> 7
+		else:
+			return
+		partner = self.state.grid[r][partner_c]
+		if partner == EMPTY or piece_type(partner) not in (HORSE, ELEPHANT):
+			return
+		self.state.grid[r][c], self.state.grid[r][partner_c] = (
+			self.state.grid[r][partner_c],
+			self.state.grid[r][c],
+		)
+
 	def _legal_from(self, src: Tuple[int, int]) -> List[Move]:
 		out: List[Move] = []
 		for move in self.state.legal_moves():
@@ -313,6 +511,8 @@ class JanggiApp:
 		return out
 
 	def pass_turn(self) -> None:
+		if self.setup_phase:
+			return
 		if self.agent_thinking or self.state.is_terminal():
 			return
 		if self.state.side_to_move != self.human_color:
@@ -324,6 +524,22 @@ class JanggiApp:
 		if not self.state.is_terminal() and self.state.side_to_move != self.human_color:
 			self._start_agent_move()
 
+	def reset_setup(self) -> None:
+		"""Restore the back-row horse/elephant layout to the default 상마마상 form."""
+		if not self.setup_phase:
+			return
+		for r in (0, 9):
+			for c in range(COLS):
+				self.state.grid[r][c] = INITIAL_SETUP[r][c]
+
+	def start_game(self) -> None:
+		if not self.setup_phase:
+			return
+		self.setup_phase = False
+		self.message = ""
+		if not self.state.is_terminal() and self.state.side_to_move != self.human_color:
+			self._start_agent_move()
+
 	def new_game(self) -> None:
 		self.state = Janggi()
 		self.selected = None
@@ -331,9 +547,7 @@ class JanggiApp:
 		self.agent_move = None
 		self.agent_thinking = False
 		self.message = ""
-		# If human plays red, AI (blue) goes first.
-		if self.state.side_to_move != self.human_color:
-			self._start_agent_move()
+		self.setup_phase = True
 
 	def _check_terminal(self) -> None:
 		if not self.state.is_terminal():
@@ -378,10 +592,14 @@ def run(human_color: int, simulations: int, checkpoint_path: str) -> None:
 					app.new_game()
 				elif event.key == pygame.K_p:
 					app.pass_turn()
+				elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+					if app.setup_phase:
+						app.start_game()
 			elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-				cell = renderer.screen_to_board(*event.pos)
-				if cell is not None:
-					app.handle_click(cell)
+				if not app.handle_panel_click(event.pos):
+					cell = renderer.screen_to_board(*event.pos)
+					if cell is not None:
+						app.handle_click(cell)
 
 		if app.agent_move is not None:
 			app._consume_agent_move()
@@ -391,7 +609,8 @@ def run(human_color: int, simulations: int, checkpoint_path: str) -> None:
 			app.state,
 			app.selected,
 			[(m[2], m[3]) for m in app.legal_for_selected],
-			app.message,
+			app,
+			pygame.mouse.get_pos(),
 		)
 		pygame.display.flip()
 		clock.tick(60)
