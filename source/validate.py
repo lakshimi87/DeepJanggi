@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import os
 
 import numpy as np
+import torch
 
 from .agent import NeuralAgent, RandomAgent
 from .board import Janggi, action_to_move, move_to_action
@@ -15,6 +17,19 @@ from .config import (
 	PLAYER_NAMES,
 	RED,
 )
+
+
+def report_checkpoint(path: str) -> None:
+	if not path or not os.path.isfile(path):
+		print(f"Checkpoint: {path or '(none)'} (not found)")
+		return
+	state = torch.load(path, map_location="cpu")
+	iteration = state.get("iteration", "?")
+	global_step = state.get("global_step", "?")
+	print(
+		f"Checkpoint: {path} "
+		f"(iteration={iteration}, global_step={global_step})"
+	)
 
 
 def play_match(agent_red, agent_blue) -> int:
@@ -40,10 +55,12 @@ def main() -> None:
 	parser.add_argument("--checkpoint", type=str, default=LATEST_CHECKPOINT)
 	args = parser.parse_args()
 
+	report_checkpoint(args.checkpoint)
 	hero = NeuralAgent(simulations=args.simulations, checkpoint_path=args.checkpoint)
 	if args.opponent == "random":
 		villain = RandomAgent()
 	else:
+		report_checkpoint(args.opponent_path)
 		villain = NeuralAgent(simulations=args.simulations, checkpoint_path=args.opponent_path)
 
 	wins = losses = draws = 0
