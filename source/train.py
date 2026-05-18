@@ -19,7 +19,11 @@ def parse_args() -> argparse.Namespace:
 	p.add_argument("--simulations", type=int, default=MCTS_SIMULATIONS_TRAIN)
 	p.add_argument("--games-per-iter", type=int, default=GAMES_PER_ITERATION)
 	p.add_argument("--train-steps", type=int, default=TRAIN_STEPS_PER_ITERATION)
-	p.add_argument("--resume", action="store_true", help="Resume from checkpoints/latest.pt if present.")
+	p.add_argument(
+		"--fresh",
+		action="store_true",
+		help="Start from scratch, ignoring checkpoints/latest.pt.",
+	)
 	return p.parse_args()
 
 
@@ -30,8 +34,10 @@ def main() -> None:
 		games_per_iter=args.games_per_iter,
 		train_steps=args.train_steps,
 	)
-	if args.resume and trainer.load(LATEST_CHECKPOINT):
+	if not args.fresh and trainer.load(LATEST_CHECKPOINT):
 		print(f"Resumed from iteration {trainer.iteration} (step {trainer.global_step}).")
+	else:
+		print("Starting fresh (no checkpoint loaded).")
 	trainer.run(args.iterations)
 
 
