@@ -8,7 +8,7 @@ import os
 import numpy as np
 import torch
 
-from .agent import NeuralAgent, RandomAgent
+from .agent import MinimaxAgent, NeuralAgent, RandomAgent
 from .board import Janggi, action_to_move, move_to_action
 from .config import (
 	BLUE,
@@ -47,9 +47,19 @@ def main() -> None:
 	parser.add_argument("--simulations", type=int, default=MCTS_SIMULATIONS_VALIDATE)
 	parser.add_argument(
 		"--opponent",
-		choices=("random", "checkpoint"),
-		default="random",
-		help="random = uniform legal-move baseline. checkpoint = a saved .pt to compare against.",
+		choices=("random", "minimax", "checkpoint"),
+		default="minimax",
+		help=(
+			"random = uniform legal-move baseline. "
+			"minimax = alpha-beta search with material evaluation (stronger baseline). "
+			"checkpoint = a saved .pt to compare against."
+		),
+	)
+	parser.add_argument(
+		"--minimax-depth",
+		type=int,
+		default=2,
+		help="Search depth (in plies) for the minimax baseline.",
 	)
 	parser.add_argument("--opponent-path", type=str, default="")
 	parser.add_argument("--checkpoint", type=str, default=LATEST_CHECKPOINT)
@@ -59,6 +69,10 @@ def main() -> None:
 	hero = NeuralAgent(simulations=args.simulations, checkpoint_path=args.checkpoint)
 	if args.opponent == "random":
 		villain = RandomAgent()
+		print("Opponent: random baseline")
+	elif args.opponent == "minimax":
+		villain = MinimaxAgent(depth=args.minimax_depth)
+		print(f"Opponent: minimax (depth={args.minimax_depth})")
 	else:
 		report_checkpoint(args.opponent_path)
 		villain = NeuralAgent(simulations=args.simulations, checkpoint_path=args.opponent_path)

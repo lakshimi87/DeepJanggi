@@ -8,19 +8,21 @@ import numpy as np
 import torch
 
 from .agent import temperature_for_ply
-from .board import Janggi, action_to_move
+from .board import Janggi, action_to_move, randomize_flank_setup
 from .config import TOTAL_ACTIONS
 from .encoder import encode_state
 from .mcts import MCTS, select_action_from_visits
 from .replay import Sample
 
 
-def play_one_game(mcts: MCTS) -> Tuple[List[Sample], int]:
+def play_one_game(mcts: MCTS, randomize_setup: bool = True) -> Tuple[List[Sample], int]:
 	"""Run a single self-play game and return per-move training samples + winner.
 
 	winner: 0 = RED, 1 = BLUE, -1 = draw.
 	"""
 	state = Janggi()
+	if randomize_setup:
+		randomize_flank_setup(state)
 	history: List[Tuple[np.ndarray, np.ndarray, int]] = []  # (planes, visit_probs, side_to_move)
 
 	while not state.is_terminal():

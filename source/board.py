@@ -8,6 +8,7 @@ travel, capturing the opposing king as the win condition, and the pass action.
 from __future__ import annotations
 
 import copy
+import random
 from dataclasses import dataclass, field
 from typing import Iterable, List, Optional, Tuple
 
@@ -106,6 +107,29 @@ INITIAL_SETUP: List[List[int]] = [
 		make_piece(BLUE, HORSE), make_piece(BLUE, ELEPHANT), make_piece(BLUE, CHARIOT),
 	],
 ]
+
+
+def swap_flank(grid: List[List[int]], row: int, flank: str) -> None:
+	"""Swap the horse and elephant on one back-rank flank in place.
+
+	Janggi opening choice: each side independently picks left/right flank as 마상 or 상마.
+	"""
+	if flank == "left":
+		c1, c2 = 1, 2
+	elif flank == "right":
+		c1, c2 = 6, 7
+	else:
+		raise ValueError(f"flank must be 'left' or 'right', got {flank!r}")
+	grid[row][c1], grid[row][c2] = grid[row][c2], grid[row][c1]
+
+
+def randomize_flank_setup(state: "Janggi", rng: Optional[random.Random] = None) -> None:
+	"""Randomly swap horse/elephant on each flank for each side (4 independent coin flips)."""
+	r = rng or random
+	for back_row in (0, 9):
+		for flank in ("left", "right"):
+			if r.random() < 0.5:
+				swap_flank(state.grid, back_row, flank)
 
 
 @dataclass
