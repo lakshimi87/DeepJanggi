@@ -64,6 +64,7 @@ HIGHLIGHT_SELECT = (60, 120, 220)
 HIGHLIGHT_MOVE = (40, 180, 80)
 HIGHLIGHT_CAPTURE = (220, 60, 60)
 HIGHLIGHT_SETUP = (90, 130, 200)
+HIGHLIGHT_LAST_MOVE = (210, 150, 40)
 TEXT_COLOR = (20, 20, 20)
 SUBTLE_TEXT = (90, 60, 30)
 STATUS_BG = (220, 178, 110)
@@ -168,6 +169,7 @@ class Renderer:
 		state: Janggi,
 		selected: Optional[Tuple[int, int]],
 		legal_targets: List[Tuple[int, int]],
+		last_move: Optional[Move],
 		app: "JanggiApp",
 		mouse_pos: Tuple[int, int],
 	) -> None:
@@ -176,6 +178,10 @@ class Renderer:
 		self._draw_palaces(surface)
 		if app.setup_phase:
 			self._highlight_setup_pieces(surface, state)
+		if last_move is not None and last_move != PASS_MOVE:
+			fr, fc, tr, tc = last_move
+			self._draw_last_move_square(surface, (fr, fc))
+			self._draw_last_move_square(surface, (tr, tc))
 		if selected is not None:
 			self._highlight_cell(surface, selected, HIGHLIGHT_SELECT, width=4)
 		for tr, tc in legal_targets:
@@ -228,6 +234,12 @@ class Renderer:
 	) -> None:
 		cx, cy = self.board_to_screen(*cell)
 		pygame.draw.circle(surface, color, (cx, cy), 8)
+
+	def _draw_last_move_square(self, surface: pygame.Surface, cell: Tuple[int, int]) -> None:
+		cx, cy = self.board_to_screen(*cell)
+		half = CELL_SIZE // 2 - 2
+		rect = pygame.Rect(cx - half, cy - half, half * 2, half * 2)
+		pygame.draw.rect(surface, HIGHLIGHT_LAST_MOVE, rect, 3)
 
 	def _highlight_setup_pieces(self, surface: pygame.Surface, state: Janggi) -> None:
 		"""During setup, highlight the horse/elephant cells eligible for a flank swap."""
@@ -371,6 +383,7 @@ class JanggiApp:
 		self.state = Janggi()
 		self.selected: Optional[Tuple[int, int]] = None
 		self.legal_for_selected: List[Move] = []
+		self.last_move: Optional[Move] = None
 		self.message = ""
 		self.setup_phase = True
 
@@ -426,6 +439,7 @@ class JanggiApp:
 		self.agent_thinking = False
 		self.message = ""
 		self.state.apply(move)
+		self.last_move = move
 		self._check_terminal()
 
 	# ------------------------------------------------------------------
@@ -468,6 +482,7 @@ class JanggiApp:
 				_, _, tr, tc = move
 				if (tr, tc) == board_pos:
 					self.state.apply(move)
+					self.last_move = move
 					self.selected = None
 					self.legal_for_selected = []
 					self._check_terminal()
@@ -518,6 +533,7 @@ class JanggiApp:
 		if self.state.side_to_move != self.human_color:
 			return
 		self.state.apply(PASS_MOVE)
+		self.last_move = PASS_MOVE
 		self.selected = None
 		self.legal_for_selected = []
 		self._check_terminal()
@@ -544,6 +560,7 @@ class JanggiApp:
 		self.state = Janggi()
 		self.selected = None
 		self.legal_for_selected = []
+		self.last_move = None
 		self.agent_move = None
 		self.agent_thinking = False
 		self.message = ""
@@ -609,6 +626,7 @@ def run(human_color: int, simulations: int, checkpoint_path: str) -> None:
 			app.state,
 			app.selected,
 			[(m[2], m[3]) for m in app.legal_for_selected],
+			app.last_move,
 			app,
 			pygame.mouse.get_pos(),
 		)
