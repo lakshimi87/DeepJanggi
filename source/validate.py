@@ -8,6 +8,7 @@ import os
 import numpy as np
 import torch
 
+from . import board as board_module
 from .agent import MinimaxAgent, NeuralAgent, RandomAgent
 from .board import Janggi, action_to_move, move_to_action
 from .config import (
@@ -58,12 +59,25 @@ def main() -> None:
 	parser.add_argument(
 		"--minimax-depth",
 		type=int,
-		default=2,
+		default=3,
 		help="Search depth (in plies) for the minimax baseline.",
+	)
+	parser.add_argument(
+		"--max-ply",
+		type=int,
+		default=200,
+		help=(
+			"Cap on game length during validation. Lower than the training cap "
+			"so drawn-out matches don't dominate evaluation time."
+		),
 	)
 	parser.add_argument("--opponent-path", type=str, default="")
 	parser.add_argument("--checkpoint", type=str, default=LATEST_CHECKPOINT)
 	args = parser.parse_args()
+
+	# Override the board's ply cap for this run only; encoder.py still uses the
+	# training-time MAX_PLY so the network sees the same normalization it learned.
+	board_module.MAX_PLY = args.max_ply
 
 	report_checkpoint(args.checkpoint)
 	hero = NeuralAgent(simulations=args.simulations, checkpoint_path=args.checkpoint)
