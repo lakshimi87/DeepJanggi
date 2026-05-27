@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Launch the GUI to play against the AI. Pass --side blue or --side red to choose
-# your color; otherwise one is picked at random.
+# Launch the GUI to play against the AI.
+#   --side blue|red          choose your color; otherwise one is picked at random.
+#   --difficulty easy|normal|hard   AI strength (MCTS simulation budget).
+#   --simulations N          override the difficulty's simulation count.
+# Difficulty can also be cycled in the GUI during setup ([D] or the panel button).
 set -e
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT_DIR"

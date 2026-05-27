@@ -7,6 +7,7 @@ underlying logical board (row 0 = top = red) is mirrored when the human plays re
 from __future__ import annotations
 
 import os
+import random
 import threading
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
@@ -14,10 +15,13 @@ from typing import Dict, List, Optional, Tuple
 import pygame
 
 from .agent import NeuralAgent
-from .board import INITIAL_SETUP, Janggi, Move, PASS_MOVE
+from .board import INITIAL_SETUP, Janggi, Move, PASS_MOVE, swap_flank
 from .config import (
 	BLUE,
 	COLS,
+	DEFAULT_DIFFICULTY,
+	DIFFICULTY_LEVELS,
+	DIFFICULTY_SIMULATIONS,
 	EMPTY,
 	LATEST_CHECKPOINT,
 	MCTS_SIMULATIONS_PLAY,
@@ -76,6 +80,11 @@ BUTTON_TEXT = (20, 20, 20)
 BUTTON_TEXT_DISABLED = (110, 100, 90)
 ERROR_COLOR = (170, 30, 30)
 THINKING_COLOR = (50, 100, 60)
+
+
+def _back_row(color: int) -> int:
+	"""Return the back-rank row index for a color (red at top, blue at bottom)."""
+	return 9 if color == BLUE else 0
 
 
 _PIECE_FILE_NAMES: Dict[Tuple[int, int], str] = {
@@ -242,14 +251,14 @@ class Renderer:
 		pygame.draw.rect(surface, HIGHLIGHT_LAST_MOVE, rect, 3)
 
 	def _highlight_setup_pieces(self, surface: pygame.Surface, state: Janggi) -> None:
-		"""During setup, highlight the horse/elephant cells eligible for a flank swap."""
-		for r in (0, 9):
-			for c in (1, 2, 6, 7):
-				piece = state.grid[r][c]
-				if piece == EMPTY:
-					continue
-				if piece_type(piece) in (HORSE, ELEPHANT):
-					self._highlight_cell(surface, (r, c), HIGHLIGHT_SETUP, width=2)
+		"""During setup, highlight the human's horse/elephant cells eligible for a flank swap."""
+		r = _back_row(self.human_color)
+		for c in (1, 2, 6, 7):
+			piece = state.grid[r][c]
+			if piece == EMPTY:
+				continue
+			if piece_type(piece) in (HORSE, ELEPHANT):
+				self._highlight_cell(surface, (r, c), HIGHLIGHT_SETUP, width=2)
 
 	def _draw_side_panel(
 		self,
@@ -295,12 +304,12 @@ class Renderer:
 			y += 22
 			hint_lines = [
 				"Click a HORSE or",
-				"ELEPHANT on the back",
+				"ELEPHANT on YOUR back",
 				"rank to swap it with",
 				"its flank partner.",
 				"",
-				"Either side can be",
-				"rearranged.",
+				"The AI arranges its",
+				"own flanks at random.",
 				"",
 				"Press Start (or SPACE)",
 				"to begin the game.",
@@ -329,6 +338,7 @@ class Renderer:
 		help_lines = [
 			"[N] New game",
 			"[P] Pass turn",
+			"[D] Difficulty (setup)",
 			"[Esc] Quit",
 		]
 		hy = panel.y + panel.height - SIDE_PANEL_PAD - len(help_lines) * 20
@@ -376,8 +386,15 @@ class Renderer:
 class JanggiApp:
 	"""Top-level game controller for the GUI."""
 
-	def __init__(self, human_color: int, simulations: int, checkpoint_path: str) -> None:
+	def __init__(
+		self,
+		human_color: int,
+		simulations: int,
+		checkpoint_path: str,
+		difficulty: str = DEFAULT_DIFFICULTY,
+	) -> None:
 		self.human_color = human_color
+		self.difficulty = difficulty
 		self.simulations = simulations
 		self.checkpoint_path = checkpoint_path
 		self.state = Janggi()
@@ -395,19 +412,38 @@ class JanggiApp:
 		# Side-panel buttons.
 		bx = SIDE_PANEL_X + SIDE_PANEL_PAD
 		bw = SIDE_PANEL_WIDTH - SIDE_PANEL_PAD * 2
-		button_block_top = SIDE_PANEL_Y + SIDE_PANEL_HEIGHT - SIDE_PANEL_PAD - 80 - 96
+		button_block_top = SIDE_PANEL_Y + SIDE_PANEL_HEIGHT - SIDE_PANEL_PAD - 80 - 96 - 48
+		self.difficulty_button = Button(
+			rect=pygame.Rect(bx, button_block_top, bw, 36),
+			label=self._difficulty_label(),
+		)
 		self.start_button = Button(
-			rect=pygame.Rect(bx, button_block_top, bw, 44),
+			rect=pygame.Rect(bx, button_block_top + 44, bw, 44),
 			label="Start Game",
 		)
 		self.reset_button = Button(
-			rect=pygame.Rect(bx, button_block_top + 52, bw, 36),
+			rect=pygame.Rect(bx, button_block_top + 44 + 52, bw, 36),
 			label="Reset Setup",
 		)
 
+	def _difficulty_label(self) -> str:
+		return f"Difficulty: {self.difficulty.upper()}"
+
+	def cycle_difficulty(self) -> None:
+		"""Advance to the next difficulty preset and update the AI's simulation budget."""
+		if not self.setup_phase:
+			return
+		idx = DIFFICULTY_LEVELS.index(self.difficulty)
+		self.difficulty = DIFFICULTY_LEVELS[(idx + 1) % len(DIFFICULTY_LEVELS)]
+		self.simulations = DIFFICULTY_SIMULATIONS[self.difficulty]
+		self.difficulty_button.label = self._difficulty_label()
+		if self.agent is not None:
+			self.agent.simulations = self.simulations
+			self.agent.mcts.simulations = self.simulations
+
 	def visible_buttons(self) -> List[Button]:
 		if self.setup_phase:
-			return [self.start_button, self.reset_button]
+			return [self.difficulty_button, self.start_button, self.reset_button]
 		return []
 
 	# ------------------------------------------------------------------
@@ -448,6 +484,9 @@ class JanggiApp:
 	def handle_panel_click(self, pos: Tuple[int, int]) -> bool:
 		"""Process clicks that fall inside the side panel. Returns True if handled."""
 		if self.setup_phase:
+			if self.difficulty_button.hit(*pos):
+				self.cycle_difficulty()
+				return True
 			if self.start_button.hit(*pos):
 				self.start_game()
 				return True
@@ -494,9 +533,9 @@ class JanggiApp:
 			self.legal_for_selected = []
 
 	def _try_swap_setup(self, board_pos: Tuple[int, int]) -> None:
-		"""Swap a horse with its flank-partner elephant (or vice versa) on the back rank."""
+		"""Swap a horse with its flank-partner elephant on the human's back rank only."""
 		r, c = board_pos
-		if r not in (0, 9):
+		if r != _back_row(self.human_color):
 			return
 		piece = self.state.grid[r][c]
 		if piece == EMPTY or piece_type(piece) not in (HORSE, ELEPHANT):
@@ -541,12 +580,12 @@ class JanggiApp:
 			self._start_agent_move()
 
 	def reset_setup(self) -> None:
-		"""Restore the back-row horse/elephant layout to the default 상마마상 form."""
+		"""Restore the human's back-row horse/elephant layout to the default 상마마상 form."""
 		if not self.setup_phase:
 			return
-		for r in (0, 9):
-			for c in range(COLS):
-				self.state.grid[r][c] = INITIAL_SETUP[r][c]
+		r = _back_row(self.human_color)
+		for c in range(COLS):
+			self.state.grid[r][c] = INITIAL_SETUP[r][c]
 
 	def start_game(self) -> None:
 		if not self.setup_phase:
@@ -558,6 +597,11 @@ class JanggiApp:
 
 	def new_game(self) -> None:
 		self.state = Janggi()
+		# The AI rearranges its own flanks at random; the human uses the swap UI.
+		ai_back_row = _back_row(RED if self.human_color == BLUE else BLUE)
+		for flank in ("left", "right"):
+			if random.random() < 0.5:
+				swap_flank(self.state.grid, ai_back_row, flank)
 		self.selected = None
 		self.legal_for_selected = []
 		self.last_move = None
@@ -578,7 +622,12 @@ class JanggiApp:
 			self.message = "AI wins."
 
 
-def run(human_color: int, simulations: int, checkpoint_path: str) -> None:
+def run(
+	human_color: int,
+	simulations: int,
+	checkpoint_path: str,
+	difficulty: str = DEFAULT_DIFFICULTY,
+) -> None:
 	pygame.init()
 	pygame.display.set_caption("DeepJanggi")
 	screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
@@ -594,7 +643,12 @@ def run(human_color: int, simulations: int, checkpoint_path: str) -> None:
 		font_large=font_large,
 	)
 
-	app = JanggiApp(human_color=human_color, simulations=simulations, checkpoint_path=checkpoint_path)
+	app = JanggiApp(
+		human_color=human_color,
+		simulations=simulations,
+		checkpoint_path=checkpoint_path,
+		difficulty=difficulty,
+	)
 	app.new_game()
 
 	running = True
@@ -609,6 +663,8 @@ def run(human_color: int, simulations: int, checkpoint_path: str) -> None:
 					app.new_game()
 				elif event.key == pygame.K_p:
 					app.pass_turn()
+				elif event.key == pygame.K_d:
+					app.cycle_difficulty()
 				elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
 					if app.setup_phase:
 						app.start_game()

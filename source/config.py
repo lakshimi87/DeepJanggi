@@ -106,6 +106,16 @@ MCTS_SIMULATIONS_TRAIN = 80
 MCTS_SIMULATIONS_PLAY = 200
 MCTS_SIMULATIONS_VALIDATE = 80
 
+# Difficulty presets for human-vs-AI play: each level maps to an MCTS simulation
+# budget. More simulations means a stronger (and slower) opponent.
+DIFFICULTY_LEVELS = ("easy", "normal", "hard")
+DEFAULT_DIFFICULTY = "normal"
+DIFFICULTY_SIMULATIONS = {
+	"easy": 50,
+	"normal": 200,
+	"hard": 600,
+}
+
 # MCTS parameters.
 PUCT_C = 1.5
 DIRICHLET_ALPHA = 0.3

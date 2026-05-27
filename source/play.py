@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import argparse
 
-from .config import BLUE, LATEST_CHECKPOINT, MCTS_SIMULATIONS_PLAY, RED
+from .config import (
+	BLUE,
+	DEFAULT_DIFFICULTY,
+	DIFFICULTY_LEVELS,
+	DIFFICULTY_SIMULATIONS,
+	LATEST_CHECKPOINT,
+	RED,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -15,7 +22,18 @@ def parse_args() -> argparse.Namespace:
 		default="blue",
 		help="Color the human will play (blue starts at the bottom by default).",
 	)
-	p.add_argument("--simulations", type=int, default=MCTS_SIMULATIONS_PLAY)
+	p.add_argument(
+		"--difficulty",
+		choices=DIFFICULTY_LEVELS,
+		default=DEFAULT_DIFFICULTY,
+		help="AI strength. Controls the MCTS simulation budget.",
+	)
+	p.add_argument(
+		"--simulations",
+		type=int,
+		default=None,
+		help="Override the difficulty's MCTS simulation count.",
+	)
 	p.add_argument("--checkpoint", type=str, default=LATEST_CHECKPOINT)
 	return p.parse_args()
 
@@ -26,7 +44,17 @@ def main() -> None:
 	from .ui import run
 
 	human_color = BLUE if args.side == "blue" else RED
-	run(human_color=human_color, simulations=args.simulations, checkpoint_path=args.checkpoint)
+	simulations = (
+		args.simulations
+		if args.simulations is not None
+		else DIFFICULTY_SIMULATIONS[args.difficulty]
+	)
+	run(
+		human_color=human_color,
+		difficulty=args.difficulty,
+		simulations=simulations,
+		checkpoint_path=args.checkpoint,
+	)
 
 
 if __name__ == "__main__":
