@@ -57,6 +57,9 @@ class Trainer:
 	# Checkpointing
 	# ------------------------------------------------------------------
 	def save(self, path: str = LATEST_CHECKPOINT) -> None:
+		# Write to a temp file then atomically rename, so a concurrent reader
+		# (e.g. play.py loading the agent) never sees a half-written archive.
+		tmp_path = f"{path}.tmp"
 		torch.save(
 			{
 				"model": self.network.state_dict(),
@@ -64,8 +67,9 @@ class Trainer:
 				"iteration": self.iteration,
 				"global_step": self.global_step,
 			},
-			path,
+			tmp_path,
 		)
+		os.replace(tmp_path, path)
 
 	def load(self, path: str = LATEST_CHECKPOINT) -> bool:
 		if not os.path.isfile(path):
