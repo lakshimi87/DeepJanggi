@@ -32,7 +32,7 @@ training-time exploration and inference-time move selection.
 ./setup.sh                    # one-time: create venv and install dependencies
 ./train.sh --iterations 100   # self-play training (writes checkpoints/latest.pt)
 ./play.sh --side blue         # play vs the AI as Blue (--side red for Red)
-./validate.sh --games 20      # benchmark current checkpoint vs random baseline
+./validate.sh                 # ground-truth suite + 10-game match vs minimax
 ```
 
 The first time `train.sh` / `play.sh` / `validate.sh` is invoked it bootstraps the
@@ -121,11 +121,22 @@ Keyboard:
 - `Esc` — quit
 
 ### `validate.sh`
+
+Ground-truth validation modelled on DeepChess's `validate_gt`: a curated move
+suite (King Capture / Win Material / King Safety) and a value-head evaluation are
+scored for the neural engine *and* a classical minimax baseline side by side,
+followed by a head-to-head match. Exits non-zero if the neural engine passes
+under 60% of the suite (useful in CI).
 ```
---games N             Number of evaluation games (sides alternate per game).
---simulations N       MCTS simulations per move.
---opponent {random,checkpoint}
+--games N             Head-to-head games to play, 0 to skip (sides alternate).
+--simulations N       MCTS simulations per test/match move.
+--minimax-depth N     Search depth for the classical minimax baseline.
+--eval-tolerance F    Value-head magnitude threshold for a non-zero verdict.
+--opponent {random,minimax,checkpoint}   Match opponent (default minimax).
 --opponent-path PATH  Required if --opponent checkpoint.
+--max-ply N           Per-game ply cap during the match.
+--history             Chart suite progress across numbered checkpoints.
+--checkpoint-dir DIR  Where --history looks for numbered checkpoints.
 --checkpoint PATH     The checkpoint under test.
 ```
 

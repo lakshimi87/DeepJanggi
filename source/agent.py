@@ -120,7 +120,13 @@ class MinimaxAgent:
 		for move in self._candidate_moves(state):
 			child = state.clone()
 			child.apply(move)
-			score = -self._negamax(child, self.depth - 1, -math.inf, math.inf, me)
+			# A king capture ends the game without switching turns, so it must be
+			# scored as an immediate win for the mover rather than negated like a
+			# normal child (which would make the search avoid the winning move).
+			if child.is_terminal() and child.side_to_move == me:
+				score = _KING_VALUE * 10
+			else:
+				score = -self._negamax(child, self.depth - 1, -math.inf, math.inf, me)
 			if score > best_score + 1e-9:
 				best_score = score
 				best_moves = [move]
@@ -141,10 +147,15 @@ class MinimaxAgent:
 		if depth <= 0:
 			return _material_eval(state, state.side_to_move)
 		best = -math.inf
+		mover = state.side_to_move
 		for move in self._candidate_moves(state):
 			child = state.clone()
 			child.apply(move)
-			score = -self._negamax(child, depth - 1, -beta, -alpha, me)
+			# King capture wins without a turn switch (see select_move).
+			if child.is_terminal() and child.side_to_move == mover:
+				score = _KING_VALUE * 10
+			else:
+				score = -self._negamax(child, depth - 1, -beta, -alpha, me)
 			if score > best:
 				best = score
 			if best > alpha:
