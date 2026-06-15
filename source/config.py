@@ -93,8 +93,12 @@ CHECKPOINT_DIR = os.path.join(ROOT_DIR, "checkpoints")
 LATEST_CHECKPOINT = os.path.join(CHECKPOINT_DIR, "latest.pt")
 
 # Training hyper-parameters (kept here so all entry points share the same defaults).
-NUM_RES_BLOCKS = 6
-NUM_FILTERS = 96
+# Tower sized to match DeepChess's ~12M-parameter ResNet (16 blocks x 192 filters).
+# The policy head is fully convolutional (see network.py), so unlike the previous
+# flatten->Linear head the parameter count is dominated by the residual tower, not
+# a single dead weight matrix.
+NUM_RES_BLOCKS = 16
+NUM_FILTERS = 192
 
 LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-4

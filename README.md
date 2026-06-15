@@ -78,10 +78,20 @@ softmax in MCTS.
 
 ### Network (`source/network.py`)
 Input planes: 14 piece planes + 1 side-to-move plane + 1 normalized ply plane =
-16 channels of shape (10, 9). The network is a small AlphaZero-style ResNet
-(default 6 residual blocks × 96 filters) with two heads:
-- **Policy** — 1×1 conv → flatten → linear over `TOTAL_ACTIONS`
-- **Value** — 1×1 conv → MLP → tanh-bounded scalar
+16 channels of shape (10, 9). The network is an AlphaZero-style ResNet (default
+16 residual blocks × 192 filters, ≈11.4M parameters — matching DeepChess's
+tower scale) with two heads:
+- **Policy** — *fully convolutional*: a 3×3 conv + a 1×1 conv emitting 90
+  destination-square planes over the board. Flattening as
+  `from_idx * 90 + to_idx` lines each logit's spatial position up with its
+  move's from-square (matching `board.move_to_action`), so policy weights are
+  shared across the board instead of living in one giant `Linear` matrix. The
+  location-less PASS logit comes from a tiny head off the globally pooled tower
+  features. (The previous `flatten → Linear(32·90, 8101)` head put 23.3M
+  parameters — 95% of the whole net — into a single weight matrix with no
+  spatial weight sharing, which both bloated the checkpoint and kept the policy
+  from learning.)
+- **Value** — 1×1 conv (32 channels) → MLP → tanh-bounded scalar
 
 ### MCTS (`source/mcts.py`)
 PUCT selection with `c=1.5`, leaf evaluations from the network, and Dirichlet

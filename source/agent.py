@@ -50,7 +50,14 @@ class NeuralAgent:
 		if not path or not os.path.isfile(path):
 			return False
 		state = torch.load(path, map_location=self.device)
-		self.network.load_state_dict(state["model"])
+		try:
+			self.network.load_state_dict(state["model"])
+		except RuntimeError as exc:
+			print(
+				f"WARNING: {path} is incompatible with the current network "
+				f"architecture; using untrained weights.\n  ({exc})"
+			)
+			return False
 		self.network.eval()
 		return True
 

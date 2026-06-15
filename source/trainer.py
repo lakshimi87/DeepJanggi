@@ -75,11 +75,21 @@ class Trainer:
 		if not os.path.isfile(path):
 			return False
 		state = torch.load(path, map_location=self.device)
-		self.network.load_state_dict(state["model"])
+		try:
+			self.network.load_state_dict(state["model"])
+		except RuntimeError as exc:
+			# Shapes don't match — almost certainly a checkpoint from a different
+			# architecture (e.g. the old flatten->Linear policy head). Don't crash
+			# resume; fall back to a fresh start and leave the stale file untouched.
+			print(
+				f"WARNING: {path} is incompatible with the current network "
+				f"architecture; starting fresh.\n  ({exc})"
+			)
+			return False
 		if "optimizer" in state:
 			try:
 				self.optimizer.load_state_dict(state["optimizer"])
-			except ValueError:
+			except (ValueError, RuntimeError):
 				pass
 		self.iteration = state.get("iteration", 0)
 		self.global_step = state.get("global_step", 0)
